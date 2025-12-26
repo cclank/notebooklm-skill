@@ -29,33 +29,98 @@ from auth_manager import AuthManager
 
 
 # NotebookLM UI Selectors (discovered from browser analysis)
+# Multiple selectors for fallback - tries each in order
 SELECTORS = {
-    # Dashboard
-    "create_notebook_button": "button.create-new-button",
-    "create_notebook_card": "mat-card.create-new-action-button",
+    # Dashboard - Create new notebook button
+    "create_notebook_button": [
+        "button.create-new-button",
+        "mat-card.create-new-action-button",
+        'button[aria-label="新建笔记本"]',
+        'button[aria-label="Create new notebook"]',
+        'button[aria-label="Create"]',
+    ],
+    
+    # Inside notebook - Create notebook button (different from dashboard)
+    "create_notebook_inside": [
+        "button.create-notebook-button",
+        'button[aria-label="创建笔记本"]',
+    ],
     
     # Notebook title
-    "title_label": "span.title-label-inner",
-    "title_input": "input.title-input",
+    "title_label": [
+        "span.title-label-inner",
+        ".notebook-title",
+        'span[class*="title"]',
+    ],
+    "title_input": [
+        "input.title-input",
+        'input[aria-label="笔记本标题"]',
+        'input[aria-label="Notebook title"]',
+    ],
     
     # Add source modal
-    "add_source_button": "button.add-source-button",
-    "upload_file_button": 'button.drop-zone-icon-button:has-text("上传文件"), button.drop-zone-icon-button:has-text("Upload")',
-    "website_button": 'button.drop-zone-icon-button:has-text("网站"), button.drop-zone-icon-button:has-text("Website")',
-    "paste_text_button": 'button.drop-zone-icon-button:has-text("复制的文字"), button.drop-zone-icon-button:has-text("Copied text")',
+    "add_source_button": [
+        "button.add-source-button",
+        'button[aria-label="添加来源"]',
+        'button[aria-label="Add source"]',
+        'button:has-text("添加来源")',
+        'button:has-text("Add source")',
+    ],
+    
+    # Upload options in modal
+    "upload_file_button": [
+        'button.drop-zone-icon-button:has-text("上传文件")',
+        'button.drop-zone-icon-button:has-text("Upload")',
+        'button:has-text("上传文件")',
+        'button:has-text("Upload file")',
+    ],
+    "website_button": [
+        'button.drop-zone-icon-button:has-text("网站")',
+        'button.drop-zone-icon-button:has-text("Website")',
+        'button:has-text("网站")',
+        'button:has-text("Website")',
+    ],
+    "paste_text_button": [
+        'button.drop-zone-icon-button:has-text("复制的文字")',
+        'button.drop-zone-icon-button:has-text("Copied text")',
+        'button:has-text("复制的文字")',
+        'button:has-text("Paste text")',
+    ],
     
     # Input fields
-    "url_input": 'textarea[aria-label="输入网址"], textarea[aria-label="Enter URLs"]',
-    "text_input": 'textarea[aria-label="粘贴的文字"], textarea[aria-label="Copied text"]',
+    "url_input": [
+        'textarea[aria-label="输入网址"]',
+        'textarea[aria-label="Enter URLs"]',
+        'textarea[placeholder*="URL"]',
+    ],
+    "text_input": [
+        'textarea[aria-label="粘贴的文字"]',
+        'textarea[aria-label="Copied text"]',
+        'textarea[aria-label="Paste text"]',
+    ],
     
     # Buttons
-    "insert_button": 'button:has-text("插入"), button:has-text("Insert")',
-    "close_modal_button": 'button[aria-label="关闭"], button[aria-label="Close"]',
-    "back_button": 'button[aria-label="返回"], button[aria-label="Back"]',
+    "insert_button": [
+        'button:has-text("插入")',
+        'button:has-text("Insert")',
+        'button[aria-label="插入"]',
+    ],
+    "close_modal_button": [
+        'button[aria-label="关闭"]',
+        'button[aria-label="Close"]',
+        'button.close-button',
+    ],
+    "back_button": [
+        'button[aria-label="返回"]',
+        'button[aria-label="Back"]',
+    ],
     
     # Source list
-    "source_item": ".source-item",
-    "source_count": ".sources-header-text",
+    "source_item": [
+        ".source-item",
+        ".source-card",
+        '[class*="source"]',
+    ],
 }
 
 # Supported file extensions
@@ -87,29 +152,57 @@ class UploadManager:
         # Ensure data directory exists
         DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    def _find_element(self, page: Page, selector: str, timeout: int = 5000) -> bool:
-        """Try to find an element with multiple selector options"""
-        selectors = selector.split(", ")
+    def _get_selectors(self, key: str) -> List[str]:
+        """Get selector list from SELECTORS dict"""
+        value = SELECTORS.get(key, [])
+        if isinstance(value, str):
+            return [value]
+        return value
+
+    def _wait_for_page_ready(self, page: Page, timeout: int = 10000):
+        """Wait for page to be fully loaded and interactive"""
+        try:
+            # Wait for network to be idle
+            page.wait_for_load_state("networkidle", timeout=timeout)
+        except Exception:
+            pass
+        # Additional delay for dynamic content
+        self.stealth.random_delay(1000, 2000)
+
+    def _find_element(self, page: Page, selector_key: str, timeout: int = 10000) -> Optional[str]:
+        """
+        Try to find an element with multiple selector options
+        Returns the selector that worked, or None if not found
+        """
+        selectors = self._get_selectors(selector_key)
         for sel in selectors:
             try:
-                page.wait_for_selector(sel.strip(), timeout=timeout, state="visible")
-                return True
+                page.wait_for_selector(sel, timeout=timeout // len(selectors), state="visible")
+                print(f"    ✓ Found element with: {sel[:50]}...")
+                return sel
             except Exception:
                 continue
-        return False
+        print(f"    ✗ Could not find element for: {selector_key}")
+        return None
 
-    def _click_element(self, page: Page, selector: str):
+    def _click_element(self, page: Page, selector_key: str, timeout: int = 10000) -> bool:
         """Click an element, trying multiple selectors if needed"""
-        selectors = selector.split(", ")
+        selectors = self._get_selectors(selector_key)
+        
         for sel in selectors:
             try:
-                element = page.query_selector(sel.strip())
+                # First wait for the element to be visible
+                page.wait_for_selector(sel, timeout=timeout // len(selectors), state="visible")
+                element = page.query_selector(sel)
                 if element and element.is_visible():
-                    self.stealth.realistic_click(page, sel.strip())
+                    print(f"    ✓ Clicking: {sel[:50]}...")
+                    self.stealth.realistic_click(page, sel)
                     return True
             except Exception:
                 continue
-        raise Exception(f"Could not find element: {selector}")
+        
+        # If all selectors failed, raise with helpful message
+        raise Exception(f"Could not find element '{selector_key}'. Tried selectors: {selectors}")
 
     def create_notebook(self, name: str) -> Dict[str, Any]:
         """
@@ -137,22 +230,28 @@ class UploadManager:
             )
             
             page = context.new_page()
+            print("  🌐 Navigating to NotebookLM...")
             page.goto("https://notebooklm.google.com", wait_until="domcontentloaded", timeout=30000)
             
             # Check authentication
             if "accounts.google.com" in page.url:
                 raise RuntimeError("Authentication required. Run auth_manager.py setup first.")
             
-            self.stealth.random_delay(1000, 2000)
+            # Wait for page to be fully loaded
+            print("  ⏳ Waiting for page to load...")
+            self._wait_for_page_ready(page)
             
             # Click create button
             print("  📝 Clicking create button...")
-            self._click_element(page, SELECTORS["create_notebook_button"])
+            self._click_element(page, "create_notebook_button")
             self.stealth.random_delay(2000, 3000)
+            
+            # Wait for notebook to be created
+            self._wait_for_page_ready(page, timeout=5000)
             
             # Close the add source modal if it opens automatically
             try:
-                self._click_element(page, SELECTORS["close_modal_button"])
+                self._click_element(page, "close_modal_button", timeout=3000)
                 self.stealth.random_delay(500, 1000)
             except Exception:
                 pass  # Modal might not open automatically
@@ -160,18 +259,20 @@ class UploadManager:
             # Click on title to rename
             print("  ✏️ Renaming notebook...")
             try:
-                page.wait_for_selector(SELECTORS["title_label"], timeout=5000, state="visible")
-                self.stealth.realistic_click(page, SELECTORS["title_label"])
-                self.stealth.random_delay(300, 500)
-                
-                # Wait for input and type name
-                page.wait_for_selector(SELECTORS["title_input"], timeout=3000, state="visible")
-                input_element = page.query_selector(SELECTORS["title_input"])
-                if input_element:
-                    input_element.fill("")  # Clear existing
-                    self.stealth.human_type(page, SELECTORS["title_input"], name)
-                    page.keyboard.press("Enter")
-                    self.stealth.random_delay(500, 1000)
+                title_selector = self._find_element(page, "title_label", timeout=5000)
+                if title_selector:
+                    self.stealth.realistic_click(page, title_selector)
+                    self.stealth.random_delay(300, 500)
+                    
+                    # Wait for input and type name
+                    input_selector = self._find_element(page, "title_input", timeout=3000)
+                    if input_selector:
+                        input_element = page.query_selector(input_selector)
+                        if input_element:
+                            input_element.fill("")  # Clear existing
+                            self.stealth.human_type(page, input_selector, name)
+                            page.keyboard.press("Enter")
+                            self.stealth.random_delay(500, 1000)
             except Exception as e:
                 print(f"  ⚠️ Could not rename notebook: {e}")
             
@@ -259,45 +360,53 @@ class UploadManager:
             
             # Create new notebook if requested
             if create_notebook:
+                print("  🌐 Navigating to NotebookLM...")
                 page.goto("https://notebooklm.google.com", wait_until="domcontentloaded", timeout=30000)
                 
                 if "accounts.google.com" in page.url:
                     raise RuntimeError("Authentication required.")
                 
-                self.stealth.random_delay(1000, 2000)
-                self._click_element(page, SELECTORS["create_notebook_button"])
-                self.stealth.random_delay(2000, 3000)
+                self._wait_for_page_ready(page)
                 
-                # Close modal and rename
+                print("  📝 Creating notebook...")
+                self._click_element(page, "create_notebook_button")
+                self.stealth.random_delay(2000, 3000)
+                self._wait_for_page_ready(page, timeout=5000)
+                
+                # Close modal if it opens
                 try:
-                    self._click_element(page, SELECTORS["close_modal_button"])
+                    self._click_element(page, "close_modal_button", timeout=3000)
                     self.stealth.random_delay(500, 1000)
                 except Exception:
                     pass
                 
                 # Rename
                 try:
-                    self.stealth.realistic_click(page, SELECTORS["title_label"])
-                    self.stealth.random_delay(300, 500)
-                    page.wait_for_selector(SELECTORS["title_input"], timeout=3000)
-                    input_el = page.query_selector(SELECTORS["title_input"])
-                    if input_el:
-                        input_el.fill("")
-                        self.stealth.human_type(page, SELECTORS["title_input"], create_notebook)
-                        page.keyboard.press("Enter")
-                        self.stealth.random_delay(500, 1000)
-                except Exception:
-                    pass
+                    title_selector = self._find_element(page, "title_label", timeout=5000)
+                    if title_selector:
+                        self.stealth.realistic_click(page, title_selector)
+                        self.stealth.random_delay(300, 500)
+                        input_selector = self._find_element(page, "title_input", timeout=3000)
+                        if input_selector:
+                            input_el = page.query_selector(input_selector)
+                            if input_el:
+                                input_el.fill("")
+                                self.stealth.human_type(page, input_selector, create_notebook)
+                                page.keyboard.press("Enter")
+                                self.stealth.random_delay(500, 1000)
+                except Exception as e:
+                    print(f"  ⚠️ Could not rename: {e}")
                 
                 target_url = page.url
                 print(f"  📓 Created notebook: {target_url}")
             elif target_url:
+                print(f"  🌐 Navigating to notebook...")
                 page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
                 
                 if "accounts.google.com" in page.url:
                     raise RuntimeError("Authentication required.")
                 
-                self.stealth.random_delay(1000, 2000)
+                self._wait_for_page_ready(page)
             else:
                 return {"status": "error", "error": "No notebook specified"}
             
@@ -344,26 +453,29 @@ class UploadManager:
         print(f"  📄 Uploading: {Path(file_path).name}")
         
         # Open add source modal
-        self._click_element(page, SELECTORS["add_source_button"])
+        self._click_element(page, "add_source_button")
         self.stealth.random_delay(1000, 1500)
         
         # Click upload file button and handle file chooser
-        with page.expect_file_chooser() as fc_info:
-            self._click_element(page, SELECTORS["upload_file_button"])
-        
-        file_chooser = fc_info.value
-        file_chooser.set_files(file_path)
+        try:
+            with page.expect_file_chooser(timeout=10000) as fc_info:
+                self._click_element(page, "upload_file_button")
+            
+            file_chooser = fc_info.value
+            file_chooser.set_files(file_path)
+        except Exception as e:
+            return {"status": "error", "error": f"File chooser failed: {e}"}
         
         # Wait for upload to complete
         print(f"    ⏳ Processing...")
-        self.stealth.random_delay(3000, 5000)
+        self.stealth.random_delay(5000, 8000)
         
         # Check if file was added (look for source items)
-        try:
-            page.wait_for_selector(SELECTORS["source_item"], timeout=30000)
+        source_selector = self._find_element(page, "source_item", timeout=30000)
+        if source_selector:
             print(f"    ✅ Uploaded successfully")
             return {"status": "success"}
-        except Exception:
+        else:
             return {"status": "error", "error": "Upload may have failed - source not found"}
 
     def add_urls(
@@ -403,29 +515,31 @@ class UploadManager:
             )
             
             page = context.new_page()
+            print("  🌐 Navigating to notebook...")
             page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
             
             if "accounts.google.com" in page.url:
                 raise RuntimeError("Authentication required.")
             
-            self.stealth.random_delay(1000, 2000)
+            self._wait_for_page_ready(page)
             
             # Open add source modal
-            self._click_element(page, SELECTORS["add_source_button"])
+            self._click_element(page, "add_source_button")
             self.stealth.random_delay(1000, 1500)
             
             # Click website button
-            self._click_element(page, SELECTORS["website_button"])
+            self._click_element(page, "website_button")
             self.stealth.random_delay(500, 1000)
             
             # Enter URLs (newline separated)
             url_text = "\n".join(urls)
-            page.wait_for_selector(SELECTORS["url_input"], timeout=5000, state="visible")
-            self.stealth.human_type(page, SELECTORS["url_input"], url_text)
+            url_input_selector = self._find_element(page, "url_input", timeout=5000)
+            if url_input_selector:
+                self.stealth.human_type(page, url_input_selector, url_text)
             self.stealth.random_delay(500, 1000)
             
             # Click insert
-            self._click_element(page, SELECTORS["insert_button"])
+            self._click_element(page, "insert_button")
             
             # Wait for processing
             print("  ⏳ Processing URLs...")
@@ -493,35 +607,37 @@ class UploadManager:
             )
             
             page = context.new_page()
+            print("  🌐 Navigating to notebook...")
             page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
             
             if "accounts.google.com" in page.url:
                 raise RuntimeError("Authentication required.")
             
-            self.stealth.random_delay(1000, 2000)
+            self._wait_for_page_ready(page)
             
             # Open add source modal
-            self._click_element(page, SELECTORS["add_source_button"])
+            self._click_element(page, "add_source_button")
             self.stealth.random_delay(1000, 1500)
             
             # Click paste text button
-            self._click_element(page, SELECTORS["paste_text_button"])
+            self._click_element(page, "paste_text_button")
             self.stealth.random_delay(500, 1000)
             
             # Enter text content
-            page.wait_for_selector(SELECTORS["text_input"], timeout=5000, state="visible")
-            # Use fill for large text (faster than human_type)
-            text_input = page.query_selector(SELECTORS["text_input"])
-            if text_input:
-                text_input.fill(text)
+            text_input_selector = self._find_element(page, "text_input", timeout=5000)
+            if text_input_selector:
+                # Use fill for large text (faster than human_type)
+                text_input = page.query_selector(text_input_selector)
+                if text_input:
+                    text_input.fill(text)
             self.stealth.random_delay(500, 1000)
             
             # Click insert
-            self._click_element(page, SELECTORS["insert_button"])
+            self._click_element(page, "insert_button")
             
             # Wait for processing
             print("  ⏳ Processing text...")
-            self.stealth.random_delay(3000, 5000)
+            self.stealth.random_delay(5000, 8000)
             
             print(f"  ✅ Added text content")
             

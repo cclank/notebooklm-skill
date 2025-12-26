@@ -2,14 +2,14 @@
 
 # NotebookLM Claude Code Skill
 
-**Let [Claude Code](https://github.com/anthropics/claude-code) chat directly with NotebookLM for source-grounded answers based exclusively on your uploaded documents**
+**Query AND upload to Google NotebookLM directly from [Claude Code](https://github.com/anthropics/claude-code). Get source-grounded answers and upload local files without leaving your editor.**
 
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 [![Claude Code Skill](https://img.shields.io/badge/Claude%20Code-Skill-purple.svg)](https://www.anthropic.com/news/skills)
 [![Based on](https://img.shields.io/badge/Based%20on-NotebookLM%20MCP-green.svg)](https://github.com/PleasePrompto/notebooklm-mcp)
-[![GitHub](https://img.shields.io/github/stars/PleasePrompto/notebooklm-skill?style=social)](https://github.com/PleasePrompto/notebooklm-skill)
+[![GitHub](https://img.shields.io/github/stars/PleasePrompto/notebooklm-skill?style=social)](https://github.com/cclank/notebooklm-skill)
 
-> Use this skill to query your Google NotebookLM notebooks directly from Claude Code for source-grounded, citation-backed answers from Gemini. Browser automation, library management, persistent auth. Drastically reduced hallucinations - answers only from your uploaded documents.
+> Query notebooks AND upload local files (PDF, MD, TXT) to Google NotebookLM directly from Claude Code. Create new notebooks, add URLs, paste text content - all through browser automation with persistent auth. Drastically reduced hallucinations - answers only from your uploaded documents.
 
 [Installation](#installation) • [Quick Start](#quick-start) • [Why NotebookLM](#why-notebooklm-not-local-rag) • [How It Works](#how-it-works) • [MCP Alternative](https://github.com/PleasePrompto/notebooklm-mcp)
 
@@ -74,7 +74,7 @@ mkdir -p ~/.claude/skills
 
 # 2. Clone this repository
 cd ~/.claude/skills
-git clone https://github.com/PleasePrompto/notebooklm-skill notebooklm
+git clone https://github.com/cclank/notebooklm-skill notebooklm
 
 # 3. That's it! Open Claude Code and say:
 "What are my skills?"
@@ -110,6 +110,12 @@ Claude will list your available skills including NotebookLM.
 
 ### 3. Create your knowledge base
 
+**Option A: Upload via Claude Code (NEW!)**
+```
+"Create a new NotebookLM notebook called 'My Project Docs' and upload these files: /path/to/doc.pdf"
+```
+
+**Option B: Manual upload**
 Go to [notebooklm.google.com](https://notebooklm.google.com) → Create notebook → Upload your docs:
 - 📄 PDFs, Google Docs, markdown files
 - 🔗 Websites, GitHub repos
@@ -164,22 +170,31 @@ This is a **Claude Code Skill** - a local folder containing instructions and scr
 ├── SKILL.md              # Instructions for Claude
 ├── scripts/              # Python automation scripts
 │   ├── ask_question.py   # Query NotebookLM
+│   ├── upload_sources.py # Upload files/URLs/text (NEW!)
 │   ├── notebook_manager.py # Library management
 │   └── auth_manager.py   # Google authentication
 ├── .venv/                # Isolated Python environment (auto-created)
 └── data/                 # Local notebook library
 ```
 
-When you mention NotebookLM or send a notebook URL, Claude:
+When you mention NotebookLM or want to upload files, Claude:
 1. Loads the skill instructions
 2. Runs the appropriate Python script
-3. Opens a browser, asks your question
-4. Returns the answer directly to you
+3. Opens a browser, performs the action (query or upload)
+4. Returns the result directly to you
 5. Uses that knowledge to help with your task
 
 ---
 
 ## Core Features
+
+### **📤 Upload Local Files (NEW!)**
+Upload files directly to NotebookLM without leaving your editor:
+- **Supported formats**: PDF, TXT, MD, DOCX
+- **Batch upload**: Upload entire directories at once
+- **Create notebooks**: Automatically create new notebooks during upload
+- **Add URLs**: Add websites and YouTube videos as sources
+- **Paste text**: Add text content directly to notebooks
 
 ### **Source-Grounded Responses**
 NotebookLM significantly reduces hallucinations by answering exclusively from your uploaded documents. If information isn't available, it indicates uncertainty rather than inventing content.
@@ -211,6 +226,11 @@ Uses realistic typing speeds and interaction patterns to avoid detection.
 | *"Ask my API docs about [topic]"* | Queries the relevant notebook |
 | *"Use the React notebook"* | Sets active notebook |
 | *"Clear NotebookLM data"* | Fresh start (keeps library) |
+| **NEW UPLOAD COMMANDS** | |
+| *"Create a NotebookLM notebook called 'X'"* | Creates new notebook |
+| *"Upload /path/to/file.pdf to NotebookLM"* | Uploads file to notebook |
+| *"Upload my notes folder to NotebookLM"* | Batch uploads directory |
+| *"Add this URL to my notebook: [url]"* | Adds website as source |
 
 ---
 
@@ -301,8 +321,8 @@ For multi-step research, Claude automatically asks follow-up questions when need
 
 ### NotebookLM
 - **Rate limits** - Free tier has daily query limits
-- **Manual upload** - You must upload docs to NotebookLM first
-- **Share requirement** - Notebooks must be shared publicly
+- **Max sources** - 50 sources per notebook, 500,000 words per source
+- **Share requirement** - Notebooks must be shared publicly for querying
 
 ---
 
@@ -397,7 +417,7 @@ Stop the copy-paste dance. Start getting accurate, grounded answers directly in 
 ```bash
 # Get started in 30 seconds
 cd ~/.claude/skills
-git clone https://github.com/PleasePrompto/notebooklm-skill notebooklm
+git clone https://github.com/cclank/notebooklm-skill notebooklm
 # Open Claude Code: "What are my skills?"
 ```
 

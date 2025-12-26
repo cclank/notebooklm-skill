@@ -28,7 +28,7 @@ from browser_utils import BrowserFactory, StealthUtils
 from auth_manager import AuthManager
 
 
-# NotebookLM UI Selectors (discovered from browser analysis)
+# NotebookLM UI Selectors (discovered from browser analysis 2024-12)
 # Multiple selectors for fallback - tries each in order
 SELECTORS = {
     # Dashboard - Create new notebook button
@@ -58,52 +58,60 @@ SELECTORS = {
         'input[aria-label="Notebook title"]',
     ],
     
-    # Add source modal
+    # Add source button (sidebar) - may be covered by modal backdrop
     "add_source_button": [
         "button.add-source-button",
+        "button.upload-button",  # Alternative button in center
         'button[aria-label="添加来源"]',
         'button[aria-label="Add source"]',
         'button:has-text("添加来源")',
         'button:has-text("Add source")',
+        'button:has-text("上传来源")',  # Alternative text
     ],
     
-    # Upload options in modal
+    # Upload options in modal (dialog may auto-open for new notebooks)
     "upload_file_button": [
-        'button.drop-zone-icon-button:has-text("上传文件")',
-        'button.drop-zone-icon-button:has-text("Upload")',
         'button:has-text("上传文件")',
         'button:has-text("Upload file")',
+        'button:has-text("Upload")',
+        'button.drop-zone-icon-button:has-text("上传文件")',
+        'button.drop-zone-icon-button:has-text("Upload")',
     ],
     "website_button": [
-        'button.drop-zone-icon-button:has-text("网站")',
-        'button.drop-zone-icon-button:has-text("Website")',
         'button:has-text("网站")',
         'button:has-text("Website")',
+        'button.drop-zone-icon-button:has-text("网站")',
+        'button.drop-zone-icon-button:has-text("Website")',
     ],
     "paste_text_button": [
+        'button:has-text("复制的文字")',
+        'button:has-text("Copied text")',
+        'button:has-text("Paste text")',
         'button.drop-zone-icon-button:has-text("复制的文字")',
         'button.drop-zone-icon-button:has-text("Copied text")',
-        'button:has-text("复制的文字")',
-        'button:has-text("Paste text")',
     ],
     
-    # Input fields
+    # Input fields in modal
     "url_input": [
         'textarea[aria-label="输入网址"]',
         'textarea[aria-label="Enter URLs"]',
         'textarea[placeholder*="URL"]',
+        'textarea[placeholder*="网址"]',
     ],
     "text_input": [
         'textarea[aria-label="粘贴的文字"]',
         'textarea[aria-label="Copied text"]',
         'textarea[aria-label="Paste text"]',
+        'textarea[placeholder*="粘贴"]',
+        'textarea[placeholder*="paste"]',
     ],
     
-    # Buttons
+    # Action buttons
     "insert_button": [
         'button:has-text("插入")',
         'button:has-text("Insert")',
         'button[aria-label="插入"]',
+        'button[aria-label="Insert"]',
     ],
     "close_modal_button": [
         'button[aria-label="关闭"]',
@@ -115,11 +123,12 @@ SELECTORS = {
         'button[aria-label="Back"]',
     ],
     
-    # Source list
+    # Source list (to verify upload success)
     "source_item": [
         ".source-item",
         ".source-card",
-        '[class*="source"]',
+        '[class*="source-item"]',
+        '[class*="source-card"]',
     ],
 }
 
@@ -452,9 +461,24 @@ class UploadManager:
         """Upload a single file to the current notebook"""
         print(f"  📄 Uploading: {Path(file_path).name}")
         
-        # Open add source modal
-        self._click_element(page, "add_source_button")
-        self.stealth.random_delay(1000, 1500)
+        # Try to click upload_file_button first (dialog may already be open for new notebooks)
+        upload_btn_found = False
+        try:
+            upload_selector = self._find_element(page, "upload_file_button", timeout=3000)
+            if upload_selector:
+                print("    ✓ Dialog already open")
+                upload_btn_found = True
+        except Exception:
+            pass
+        
+        # If upload button not found, try opening the add source modal
+        if not upload_btn_found:
+            print("    → Opening add source dialog...")
+            try:
+                self._click_element(page, "add_source_button", timeout=5000)
+                self.stealth.random_delay(1000, 1500)
+            except Exception as e:
+                return {"status": "error", "error": f"Could not open add source dialog: {e}"}
         
         # Click upload file button and handle file chooser
         try:
@@ -463,6 +487,7 @@ class UploadManager:
             
             file_chooser = fc_info.value
             file_chooser.set_files(file_path)
+            print(f"    ✓ File selected")
         except Exception as e:
             return {"status": "error", "error": f"File chooser failed: {e}"}
         
@@ -523,15 +548,34 @@ class UploadManager:
             
             self._wait_for_page_ready(page)
             
-            # Open add source modal
-            self._click_element(page, "add_source_button")
-            self.stealth.random_delay(1000, 1500)
+            # Try to click website_button first (dialog may already be open for new notebooks)
+            print("  🔗 Looking for website option...")
+            website_btn_found = False
+            try:
+                website_selector = self._find_element(page, "website_button", timeout=3000)
+                if website_selector:
+                    print("    ✓ Dialog already open, clicking website...")
+                    self.stealth.realistic_click(page, website_selector)
+                    website_btn_found = True
+            except Exception:
+                pass
             
-            # Click website button
-            self._click_element(page, "website_button")
+            # If website button not found, try opening the add source modal
+            if not website_btn_found:
+                print("    → Opening add source dialog...")
+                try:
+                    self._click_element(page, "add_source_button", timeout=5000)
+                    self.stealth.random_delay(1000, 1500)
+                    
+                    # Now click website button
+                    self._click_element(page, "website_button")
+                except Exception as e:
+                    raise Exception(f"Could not open add source dialog: {e}")
+            
             self.stealth.random_delay(500, 1000)
             
             # Enter URLs (newline separated)
+            print("  📝 Entering URLs...")
             url_text = "\n".join(urls)
             url_input_selector = self._find_element(page, "url_input", timeout=5000)
             if url_input_selector:
@@ -539,6 +583,7 @@ class UploadManager:
             self.stealth.random_delay(500, 1000)
             
             # Click insert
+            print("  📤 Inserting...")
             self._click_element(page, "insert_button")
             
             # Wait for processing
@@ -615,24 +660,49 @@ class UploadManager:
             
             self._wait_for_page_ready(page)
             
-            # Open add source modal
-            self._click_element(page, "add_source_button")
-            self.stealth.random_delay(1000, 1500)
+            # Try to click paste_text_button first (dialog may already be open for new notebooks)
+            print("  📋 Looking for paste text option...")
+            paste_btn_found = False
+            try:
+                # First check if the paste text button is already visible (dialog auto-opened)
+                paste_selector = self._find_element(page, "paste_text_button", timeout=3000)
+                if paste_selector:
+                    print("    ✓ Dialog already open, clicking paste text...")
+                    self.stealth.realistic_click(page, paste_selector)
+                    paste_btn_found = True
+            except Exception:
+                pass
             
-            # Click paste text button
-            self._click_element(page, "paste_text_button")
+            # If paste button not found, try opening the add source modal
+            if not paste_btn_found:
+                print("    → Opening add source dialog...")
+                try:
+                    self._click_element(page, "add_source_button", timeout=5000)
+                    self.stealth.random_delay(1000, 1500)
+                    
+                    # Now click paste text button
+                    self._click_element(page, "paste_text_button")
+                except Exception as e:
+                    raise Exception(f"Could not open add source dialog: {e}")
+            
             self.stealth.random_delay(500, 1000)
             
             # Enter text content
+            print("  📝 Entering text content...")
             text_input_selector = self._find_element(page, "text_input", timeout=5000)
             if text_input_selector:
                 # Use fill for large text (faster than human_type)
                 text_input = page.query_selector(text_input_selector)
                 if text_input:
                     text_input.fill(text)
+                    print(f"    ✓ Filled {len(text)} characters")
+            else:
+                raise Exception("Could not find text input field")
+            
             self.stealth.random_delay(500, 1000)
             
             # Click insert
+            print("  📤 Inserting...")
             self._click_element(page, "insert_button")
             
             # Wait for processing

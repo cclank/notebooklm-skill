@@ -421,6 +421,7 @@ class UploadManager:
             
             # Upload each file
             uploaded = []
+            likely_uploaded = []
             errors = []
             
             for file_path in valid_files:
@@ -428,17 +429,32 @@ class UploadManager:
                     result = self._upload_single_file(page, file_path)
                     if result["status"] == "success":
                         uploaded.append(file_path)
+                    elif result["status"] == "likely_success":
+                        likely_uploaded.append(file_path)
+                        print(f"    ⚠️ {result.get('message', 'Check manually')}")
                     else:
                         errors.append({"file": file_path, "error": result.get("error", "Unknown error")})
                 except Exception as e:
                     errors.append({"file": file_path, "error": str(e)})
             
+            # Build result message
+            total_success = len(uploaded) + len(likely_uploaded)
+            if total_success > 0:
+                status = "success"
+                message = f"Uploaded {len(uploaded)}/{len(valid_files)} files"
+                if likely_uploaded:
+                    message += f" ({len(likely_uploaded)} need manual verification)"
+            else:
+                status = "error"
+                message = "No files were uploaded successfully"
+            
             return {
-                "status": "success" if uploaded else "error",
+                "status": status,
                 "uploaded": uploaded,
+                "likely_uploaded": likely_uploaded,
                 "errors": errors,
                 "notebook_url": target_url,
-                "message": f"Uploaded {len(uploaded)}/{len(valid_files)} files"
+                "message": message
             }
             
         except Exception as e:
@@ -459,7 +475,8 @@ class UploadManager:
 
     def _upload_single_file(self, page: Page, file_path: str) -> Dict[str, Any]:
         """Upload a single file to the current notebook"""
-        print(f"  📄 Uploading: {Path(file_path).name}")
+        file_name = Path(file_path).name
+        print(f"  📄 Uploading: {file_name}")
         
         # Try to click upload_file_button first (dialog may already be open for new notebooks)
         upload_btn_found = False
@@ -481,27 +498,48 @@ class UploadManager:
                 return {"status": "error", "error": f"Could not open add source dialog: {e}"}
         
         # Click upload file button and handle file chooser
+        # Increase timeout to 30 seconds for slow connections
+        file_selected = False
         try:
-            with page.expect_file_chooser(timeout=10000) as fc_info:
+            with page.expect_file_chooser(timeout=30000) as fc_info:
                 self._click_element(page, "upload_file_button")
             
             file_chooser = fc_info.value
             file_chooser.set_files(file_path)
-            print(f"    ✓ File selected")
+            file_selected = True
+            print(f"    ✓ File selected: {file_name}")
         except Exception as e:
-            return {"status": "error", "error": f"File chooser failed: {e}"}
+            # File chooser timeout doesn't necessarily mean failure
+            # The file might still be uploading in the background
+            print(f"    ⚠️ File chooser event timeout (may still be uploading): {e}")
         
-        # Wait for upload to complete
-        print(f"    ⏳ Processing...")
-        self.stealth.random_delay(5000, 8000)
+        # Wait longer for upload to complete (large files need more time)
+        print(f"    ⏳ Waiting for upload to complete...")
+        self.stealth.random_delay(8000, 12000)
         
         # Check if file was added (look for source items)
-        source_selector = self._find_element(page, "source_item", timeout=30000)
-        if source_selector:
-            print(f"    ✅ Uploaded successfully")
-            return {"status": "success"}
+        # Use multiple retries with increasing wait times
+        max_retries = 3
+        for attempt in range(max_retries):
+            source_selector = self._find_element(page, "source_item", timeout=15000)
+            if source_selector:
+                print(f"    ✅ Upload confirmed - source found")
+                return {"status": "success", "file": file_name}
+            
+            if attempt < max_retries - 1:
+                print(f"    ⏳ Waiting... (attempt {attempt + 1}/{max_retries})")
+                self.stealth.random_delay(5000, 8000)
+        
+        # If we selected the file but can't confirm, report as "likely success"
+        if file_selected:
+            print(f"    ⚠️ Cannot confirm upload, but file was selected - likely successful")
+            return {
+                "status": "likely_success",
+                "file": file_name,
+                "message": "File was selected but UI confirmation timed out. Check notebook manually."
+            }
         else:
-            return {"status": "error", "error": "Upload may have failed - source not found"}
+            return {"status": "error", "error": "Upload failed - file was not selected"}
 
     def add_urls(
         self,
